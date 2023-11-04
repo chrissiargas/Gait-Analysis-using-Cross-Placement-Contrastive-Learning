@@ -1,0 +1,73 @@
+data_args:
+  path: Datasets
+  datasets:
+    - pamap2
+    - rwhar
+    - mhealth
+    - marea
+    - realdisp
+  fs: 50
+  positions:
+    - right_lower_arm
+    - left_lower_arm
+    - dominant_lower_arm
+    - right_lower_leg
+    - left_lower_leg
+    - dominant_lower_leg
+    - right_upper_arm
+    - left_upper_arm
+    - dominant_upper_arm
+    - right_upper_leg
+    - left_upper_leg
+    - dominant_upper_leg
+  activities:
+    - walking
+
+main_args:
+  load_data: false
+  datasets:
+    - rwhar
+    - pamap2
+    - mhealth
+    - realdisp
+  positions:
+    - left_lower_leg
+    - left_lower_arm
+
+  cleaner: 'linear'
+  produce_features:
+    - norm_xyz
+  filter: median
+  filter_window: 3
+  rescaler: standard
+
+  split_type: loso
+  hold_out: 0.3
+
+  duration: 2 # seconds
+  stride: 1 # seconds
+
+  selection_method: in total
+  tolerance: 0.3
+
+  use_features:
+    - acc_x
+    - acc_y
+    - acc_z
+    - norm_xyz
+  augmentations:
+  batch_method: random
+  batch_size: 64
+
+  load_model: false
+  ssl_model: simCLR
+
+  clr_temperature:
+
+  optimizer: adam # adam, rmsprop, sgd
+
+  epochs: 50
+  decay_steps:
+  lr_decay: cosine # cosine, none
+  learning_rate: 0.0001
+  attach_head: false

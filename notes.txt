@@ -1,0 +1,9 @@
+datasets concatenation:
+    1) Preprocess to have the same format
+    2) Same units
+    3) Synchronize position recording data
+    4) Choose activities and recording positions
+
+datasets checking:
+    1)
+
