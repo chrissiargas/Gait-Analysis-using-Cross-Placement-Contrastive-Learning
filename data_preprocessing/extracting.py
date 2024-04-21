@@ -8,6 +8,8 @@ from formatting import resample, synchronize
 from data_info import Info
 from rwhar import rwhar_load_activity
 
+import matplotlib.pyplot as plt
+import numpy as np
 
 class Extractor:
     def __init__(self):
@@ -103,7 +105,8 @@ class Extractor:
             pos_ds['position'] = position
             dataset = dataset.append(pos_ds)
 
-        dataset = dataset.astype({'timestamp': int, 'subject': int, 'activity': str,
+        dataset = dataset.astype({'timestamp': int, 'subject': int,
+                                  'activity': str, 'position': str,
                                   'acc_x': float, 'acc_y': float, 'acc_z': float})
 
         filepath = os.path.join(self.load_path, 'pamap.csv')
@@ -143,7 +146,8 @@ class Extractor:
             sub_pd["subject"] = subject_num  # add subject id to all entries
             dataset = dataset.append(sub_pd)
 
-        dataset = dataset.astype({'timestamp': int, 'subject': int, 'activity': str,
+        dataset = dataset.astype({'timestamp': int, 'subject': int,
+                                  'activity': str, 'position': str,
                                   'acc_x': float, 'acc_y': float, 'acc_z': float})
 
         filename = os.path.join(self.load_path, 'rwhar.csv')
@@ -202,11 +206,12 @@ class Extractor:
 
                 sub_df = sub_df.append(pos_df)
 
-            sub_df['subject'] = str(sub_id + 1)
+            sub_df['subject'] = str(sub_id)
             dataset = dataset.append(sub_df)
 
         dataset['activity'] = dataset['activity'].map(self.info.mhealth_activities)
-        dataset = dataset.astype({'timestamp': int, 'subject': int, 'activity': str,
+        dataset = dataset.astype({'timestamp': int, 'subject': int,
+                                  'activity': str, 'position': str,
                                   'acc_x': float, 'acc_y': float, 'acc_z': float})
 
         filename = os.path.join(self.load_path, 'mhealth.csv')
@@ -292,7 +297,8 @@ class Extractor:
             dataset = dataset.append(sub_df)
 
         dataset = dataset.rename(columns={"accX": "acc_x", "accY": "acc_y", "accZ": "acc_z"})
-        dataset = dataset.astype({'timestamp': int, 'subject': int, 'activity': str,
+        dataset = dataset.astype({'timestamp': int, 'subject': int,
+                                  'activity': str, 'position': str,
                                   'acc_x': float, 'acc_y': float, 'acc_z': float})
 
         filename = os.path.join(self.load_path, 'marea.csv')
@@ -348,7 +354,8 @@ class Extractor:
             dataset = dataset.append(sub_df)
 
         dataset['activity'] = dataset['activity'].map(self.info.realdisp_activities)
-        dataset = dataset.astype({'timestamp': int, 'subject': int, 'activity': str,
+        dataset = dataset.astype({'timestamp': int, 'subject': int,
+                                  'activity': str, 'position': str,
                                   'acc_x': float, 'acc_y': float, 'acc_z': float})
 
         filename = os.path.join(self.load_path, 'realdisp.csv')
@@ -364,6 +371,9 @@ class Extractor:
                 fs: Optional[int] = None,
                 sync: bool = False) -> pd.DataFrame:
 
+        act_pairs = {}
+        pos_pairs = {}
+        old_fs = 0.
         if name == 'pamap2':
             act_pairs = self.info.pamap2_act_pairs
             pos_pairs = self.info.pamap2_pos_pairs
@@ -393,10 +403,10 @@ class Extractor:
         ds['position'] = ds['position'].map(pos_pairs)
 
         if activities is not None:
-            ds = ds[ds.activity.isin(activities)]
+            ds = ds[ds['activity'].str.contains('|'.join(activities))]
 
         if positions is not None:
-            ds = ds[ds.position.isin(positions)]
+            ds = ds[ds['position'].str.contains('|'.join(positions))]
 
         if fs is not None:
             ds = resample(ds, old_fs, fs)
@@ -411,7 +421,7 @@ class Extractor:
                  positions: Optional[List[str]] = None,
                  activities: Optional[List[str]] = None,
                  fs: Optional[int] = None,
-                 sync: bool = False,
+                 sync: bool = True,
                  load: bool = False) -> pd.DataFrame:
 
         if datasets is None:
@@ -440,12 +450,40 @@ class Extractor:
             else:
                 ds = pd.DataFrame()
 
+            # old_ds = ds.copy()
             ds = self.prepare(dataset, ds, positions, activities, fs, sync)
             ds['dataset'] = dataset
-            filename = os.path.join('datasets', dataset + '.csv')
+            ds = ds.sort_values(by=['subject', 'timestamp'])
+
+            filename = os.path.join('data_preprocessing', 'datasets', dataset + '.csv')
             ds.to_csv(filename)
 
             merged_ds = pd.concat([merged_ds, ds], axis=0, ignore_index=True)
+
+            # old_ds = old_ds.sort_values(by=['subject', 'position', 'timestamp'])
+            # A = old_ds.loc[(old_ds['subject'] == 3) & (old_ds['position'] == 'LF')]
+            # B = ds.loc[ds['subject'] == 3]
+            #
+            # acc_cols = ['acc_x', 'acc_y', 'acc_z']
+            # A = A[acc_cols].values
+            #
+            # acc_cols = ['left_lower_leg_acc_x', 'left_lower_leg_acc_y', 'left_lower_leg_acc_z']
+            # B = B[acc_cols].values
+            #
+            # start = 150
+            # old_fs = self.info.marea_fs
+            # old_segment = A[start*old_fs:start*old_fs+old_fs]
+            # plt.plot(old_segment)
+            # plt.show()
+            #
+            # new_fs = self.conf.fs
+            # new_segment = B[start * new_fs:start * new_fs + new_fs]
+            # plt.plot(new_segment)
+            # plt.show()
+            #
+            # plt.plot(np.linspace(0, old_fs//2-1, old_fs//2), np.abs(np.fft.fft(old_segment[:,0]))[:old_fs//2])
+            # plt.plot(np.linspace(0, new_fs//2-1, new_fs//2), np.abs(np.fft.fft(new_segment[:,0]))[:new_fs//2] * old_fs / new_fs, 'r--')
+            # plt.show()
 
         filename = os.path.join(self.load_path, 'gaitCLR.csv')
         merged_ds.to_csv(filename)
@@ -455,7 +493,7 @@ class Extractor:
 
 if __name__ == '__main__':
 
-    bobo = Extractor()
+    Bob = Extractor()
     # pamap_ds = PP.build_pamap2()
     # print(pamap_ds)
     # rwhar_ds = PP.build_rwhar()
@@ -467,4 +505,4 @@ if __name__ == '__main__':
     # realdisp_ds = PP.build_realdisp()
     # print(realdisp_ds)
 
-    bobo(sync=True, load=False)
+    Bob(sync=True, load=False)

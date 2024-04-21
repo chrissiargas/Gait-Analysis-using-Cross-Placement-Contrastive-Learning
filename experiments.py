@@ -1,13 +1,15 @@
 import copy
 import pandas as pd
-from datasets import multiset
-from simCLR import train_evaluate
 import ruamel.yaml
 import os
 import time
 import gc
-from parameters import simCLR_params
 
+from parameters import simCLR_params
+from data_preprocessing.building import Builder
+from model.contrastive_training import CLR_train
+
+import matplotlib.pyplot as plt
 
 def reset_tensorflow_keras_backend():
     import tensorflow as tf
@@ -41,7 +43,7 @@ def config_save(paramsFile):
         yaml.dump(parameters, fb)
 
 
-def save(path, scores, hparams=None):
+def save(path, model, history, hparams=None):
     if not hparams:
         try:
             os.makedirs(path)
@@ -55,36 +57,53 @@ def save(path, scores, hparams=None):
         except OSError as e:
             print("Error: %s - %s." % (e.filename, e.strerror))
 
-    scoresFile = os.path.join(path, "scores.csv")
     paramsFile = os.path.join(path, "parameters.yaml")
-
-    scores.to_csv(scoresFile, index=False)
     config_save(paramsFile)
+
+    fig = plt.figure()
+    plt.plot(history.history['c_loss'])
+    plt.plot(history.history['val_c_loss'])
+    plt.title('Sim-CLR performance')
+    plt.ylabel('contrastive loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'val'], loc='upper left')
+
+    historyFile = os.path.join(path, hparams + "_history.png")
+    plt.savefig(historyFile)
+
+    plt.close(fig)
+
+
+REGENERATE = False
 
 
 def simCLR_experiment():
-    # config_edit('train_args', 'events', [event])
 
-    data = Dataset(regenerate=False)
-    stats = train_evaluate(data, summary=False, verbose=1, mVerbose=False)
+    data = Builder(regenerate=REGENERATE)
+    model, history = CLR_train(data, summary=True, verbose=False)
     del data
 
-    return stats
+    return model, history
 
 
 def simCLR(archive_path):
     parameters = simCLR_params
 
     for param_name, param_value in parameters.items():
-        config_edit('train_args', param_name, param_value)
+        config_edit('main_args', param_name, param_value)
 
     archive = os.path.join(archive_path, "save-" + time.strftime("%Y%m%d-%H%M%S"))
 
-    results = pd.DataFrame()
     reset_tensorflow_keras_backend()
-    results_per_xp = simCLR_params()
-    results = pd.concat([results, pd.DataFrame([results_per_xp])],
-                        ignore_index=True)
 
-    save(archive, results)
+    datasets = ['marea']
+    split_type = 'loso'
+    hold_out = 3
 
+    config_edit('main_args', 'datasets', datasets)
+    config_edit('main_args', 'split_type', split_type)
+    config_edit('main_args', 'hold_out', hold_out)
+
+    xp_model, xp_history = simCLR_experiment()
+    hparams = '_'.join(datasets) + '_' +  split_type + '_' + str(hold_out)
+    save(archive, xp_model, xp_history, hparams=hparams)

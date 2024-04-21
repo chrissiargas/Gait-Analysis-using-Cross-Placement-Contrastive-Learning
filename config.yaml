@@ -1,73 +1,71 @@
 data_args:
   path: Datasets
   datasets:
-    - pamap2
-    - rwhar
-    - mhealth
-    - marea
-    - realdisp
+  - marea
   fs: 50
   positions:
-    - right_lower_arm
-    - left_lower_arm
-    - dominant_lower_arm
-    - right_lower_leg
-    - left_lower_leg
-    - dominant_lower_leg
-    - right_upper_arm
-    - left_upper_arm
-    - dominant_upper_arm
-    - right_upper_leg
-    - left_upper_leg
-    - dominant_upper_leg
+  - arm
+  - leg
   activities:
-    - walking
+  - walking
 
 main_args:
   load_data: false
   datasets:
-    - rwhar
-    - pamap2
-    - mhealth
-    - realdisp
+  - marea
   positions:
-    - left_lower_leg
-    - left_lower_arm
+  - left_lower_leg
+  - left_lower_arm
+  - right_lower_leg
+  activities:
+  - walking
 
-  cleaner: 'linear'
+  cleaner: linear
   produce_features:
-    - norm_xyz
-  filter: median
+  - norm_xyz
+  - jerk
+  filter:
   filter_window: 3
-  rescaler: standard
+  rescaler:
 
-  split_type: loso
-  hold_out: 0.3
-
+  split_type: loso  # lodo, loso, start, end
+  hold_out: 3
   duration: 2 # seconds
-  stride: 1 # seconds
+  stride: 1    # seconds
 
   selection_method: in total
   tolerance: 0.3
 
-  use_features:
-    - acc_x
-    - acc_y
-    - acc_z
-    - norm_xyz
-  augmentations:
+  use_features: # List(norm_xyz, norm_xy, norm_yz, norm_xz, jerk, grav_x, grav_y, grav_z)
+  - acc_x
+  - acc_y
+  - acc_z
+  - norm_xyz
+  - jerk
+  augmentations: # List(rotate, jitter, scale)
+  - shift
+  shift_pad: 1
+
+  common_augmentations:
   batch_method: random
-  batch_size: 64
+  batch_size: 128
 
   load_model: false
   ssl_model: simCLR
+  encoder: Attention
+  cnn_blocks: 4
 
-  clr_temperature:
+  clr_temperature: 0.05
 
   optimizer: adam # adam, rmsprop, sgd
 
-  epochs: 50
-  decay_steps:
-  lr_decay: cosine # cosine, none
+  epochs: 150
+  decay_steps: 0
+  lr_decay:        # cosine, none
   learning_rate: 0.0001
-  attach_head: false
+  attach_head: true
+
+  negative_dataset: same
+  negative_subject: same
+  negative_activity: same
+  negative_position: all

@@ -1,25 +1,70 @@
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from typing import Optional, List
+import resampy
+from scipy.signal import decimate
+
+METHOD = 'decimate'
 
 
 def resample(ds: pd.DataFrame, old_fs: int, new_fs: int, thres: float = 1.) -> pd.DataFrame:
-    resampled_ds = pd.DataFrame()
     acc_cols = ['acc_x', 'acc_y', 'acc_z']
+    resampled_ds = pd.DataFrame()
+    step = 1000. / new_fs
+    e = 1e-4
 
     for sub_id, sub_df in ds.groupby('subject'):
         for act_id, act_df in sub_df.groupby('activity'):
             for pos_id, pos_df in act_df.groupby('position'):
                 old_t = pos_df['timestamp'].values
-                step = 1000. / new_fs
-                e = 1e-4
-                new_t = np.arange(start=old_t[0], stop=old_t[-1] + e, step=step)
 
-                old_acc = pos_df[acc_cols].interpolate().values
-                f = interp1d(old_t, old_acc, kind='linear', axis=0, fill_value='extrapolate')
-                new_acc = f(new_t)
-                resampled_df = pd.DataFrame(new_acc, columns=acc_cols)
+                if METHOD == 'decimate':
+                    old_acc = pos_df[acc_cols].values
+                    new_acc = resampy.resample(old_acc, old_fs, new_fs, axis=0)
+                    resampled_df = pd.DataFrame(new_acc, columns=acc_cols)
+                    new_t =  np.arange(start=old_t[0], stop=old_t[0] + new_acc.shape[0] * step, step=step)
+
+                    # start = 50
+                    # old_segment = old_acc[start*old_fs:start*old_fs+old_fs]
+                    # plt.plot(old_segment)
+                    # plt.show()
+                    #
+                    # new_segment = new_acc[start * new_fs:start * new_fs + new_fs]
+                    # plt.plot(new_segment)
+                    # plt.show()
+                    #
+                    # new_acc_dec = decimate(old_acc, int(old_fs/new_fs), ftype='fir', axis=0)
+                    # new_seg_dec = new_acc_dec[start * new_fs:start * new_fs + new_fs]
+                    # plt.plot(new_seg_dec)
+                    # plt.show()
+                    #
+                    # old_acc = pos_df[acc_cols].interpolate().values
+                    # f = interp1d(old_t, old_acc, kind='linear', axis=0, fill_value='extrapolate')
+                    # new_acc_interp = f(new_t)
+                    # new_seg_interp = new_acc_interp[start * new_fs:start * new_fs+new_fs]
+                    # plt.plot(new_seg_interp)
+                    # plt.show()
+                    #
+                    # plt.plot(np.linspace(0, old_fs//2-1, old_fs//2), np.abs(np.fft.fft(old_segment[:,0]))[:old_fs//2])
+                    # plt.plot(np.linspace(0, old_fs//2-1, old_fs//2), np.abs(np.fft.fft(new_segment[:,0]))[:old_fs//2] * old_fs / new_fs, 'r--')
+                    # plt.show()
+                    #
+                    # plt.plot(np.linspace(0, old_fs//2-1, old_fs//2), np.abs(np.fft.fft(old_segment[:,0]))[:old_fs//2])
+                    # plt.plot(np.linspace(0, old_fs//2-1, old_fs//2), np.abs(np.fft.fft(new_seg_dec[:,0]))[:old_fs//2] * old_fs / new_fs, 'r--')
+                    # plt.show()
+                    #
+                    # plt.plot(np.linspace(0, old_fs // 2 - 1, old_fs // 2), np.abs(np.fft.fft(old_segment[:,0]))[:old_fs // 2])
+                    # plt.plot(np.linspace(0, old_fs // 2 - 1, old_fs // 2), np.abs(np.fft.fft(new_seg_interp[:,0]))[:old_fs // 2] * old_fs / new_fs, 'r--')
+                    # plt.show()
+
+                else:
+                    new_t = np.arange(start=old_t[0], stop=old_t[-1] + e, step=step)
+                    old_acc = pos_df[acc_cols].interpolate().values
+                    f = interp1d(old_t, old_acc, kind='linear', axis=0, fill_value='extrapolate')
+                    new_acc = f(new_t)
+                    resampled_df = pd.DataFrame(new_acc, columns=acc_cols)
 
                 NaNs = pos_df.isna().any(axis=1).values.astype(int)
                 f = interp1d(old_t, NaNs, kind='previous', axis=0, fill_value='extrapolate')
@@ -83,5 +128,9 @@ def synchronize(ds: pd.DataFrame, pivots: Optional[List[str]], kind: str = 'line
 
         synced_ds = pd.concat((synced_ds, synced_df),
                               axis=0, ignore_index=True)
+
+    cols = synced_ds.columns.tolist()
+    cols = cols[3:6] + cols[0:3] + cols[6:]
+    synced_ds = synced_ds[cols]
 
     return synced_ds

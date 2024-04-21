@@ -10,7 +10,6 @@ def butter_lowpass(cutoff, nyq_freq, order=4):
 
 
 def butter_lowpass_filter(data, cutoff_freq, nyq_freq, order=4):
-    print(data)
     b, a = butter_lowpass(cutoff_freq, nyq_freq, order=order)
     y = filtfilt(b, a, data)
     return y

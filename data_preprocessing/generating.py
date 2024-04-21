@@ -3,11 +3,16 @@ from math import ceil, floor
 from typing import Optional, Tuple, List
 from transformers import Temporal
 import tensorflow as tf
+from config_parser import Parser
+
+
+Aug_ANCHOR = False
+Aug_TARGET = True
 
 
 class Batcher:
     def __init__(self, S: Tuple[np.ndarray, np.ndarray], method: str, batch_size: int,
-                 transformer: Optional[Temporal] = None, training: bool = False,
+                 transformer: Optional[Temporal] = None, augment: bool = False,
                  seed: Optional[int] = None):
         X, T = S
         self.data = X.copy()
@@ -23,7 +28,7 @@ class Batcher:
         self.shuffled_data = None
         self.output_data = None
         self.transformer = transformer
-        self.training = training
+        self.augment = augment
 
     def reset_data(self):
         index_list = np.arange(self.n_wins, dtype=int)
@@ -44,7 +49,7 @@ class Batcher:
             for i in range(self.n_batches):
                 if self.transformer:
                     batches = self.transformer(self.output_data[i * self.batch_size: (i + 1) * self.batch_size],
-                                               training=self.training)
+                                               augment=self.augment)
                 else:
                     batches = self.output_data[i * self.batch_size: (i + 1) * self.batch_size]
 
@@ -60,9 +65,9 @@ class Zipper:
         self.stack_axis = stack_axis
         self.n_batches = self.datasets[0].n_batches
         assert self.n_batches == self.datasets[1].n_batches
-        self.batch_size = self.datasets[0].batch_size
-        self.length = self.datasets[0].length
-        self.channels = self.datasets[0].channels
+        self.batch_size = self.datasets[0].get_shape()[0]
+        self.length = self.datasets[0].get_shape()[1]
+        self.channels = self.datasets[0].get_shape()[2]
 
     def __iter__(self):
         def gen():
@@ -81,9 +86,7 @@ class Concatenator:
     def __init__(self, zipped_datasets: List[Zipper]):
         self.datasets = zipped_datasets
         self.n_dss = len(self.datasets)
-        self.N_batches = 0
-        for zipped_dataset in zipped_datasets:
-            self.N_batches += zipped_dataset.n_batches
+        self.N_batches = sum(zipped_dataset.n_batches for zipped_dataset in zipped_datasets)
         self.batch_size = self.datasets[0].batch_size
         self.length = self.datasets[0].length
         self.channels = self.datasets[0].channels
@@ -100,66 +103,74 @@ class Concatenator:
         return gen()
 
 
-def batch_concat(S: Tuple[np.ndarray, np.ndarray], method: str, batch_size: int,
+def batch_concat(S: Tuple[dict, dict], method: str, batch_size: int,
                  dicts: List[dict], transformer: Optional[Temporal] = None,
                  same_ds: bool = True, same_sub: bool = True, same_act: bool = True,
-                 training: bool = False, seed: Optional[int] = None) -> Concatenator:
+                 training: bool = False, seed: Optional[int] = None) -> dict:
     X, T = S
     ds_dict, act_dict = dicts
     X = X.copy()
     T = T.copy()
 
-    groups = []
-    if same_ds:
-        for ds, ds_id in ds_dict.items():
-            idx = np.argwhere(np.all(T[:, :, 1] == ds_id, axis=1)).squeeze()
-            ds_X = X[idx]
-            ds_T = T[idx]
+    aug_anchor = Aug_ANCHOR & training
+    aug_target = Aug_TARGET & training
 
-            if same_sub:
-                sub_arr = ds_T[:, :, 2]
-                sub_ids = np.unique(sub_arr)
+    batches = {}
+    for tp in X.keys():
+        groups = []
+        X_tmp = X[tp]
+        T_tmp = T[tp]
 
-                for sub_id in sub_ids:
-                    idx = np.argwhere(np.all(ds_T[:, :, 2] == sub_id, axis=1)).squeeze()
-                    ds_sub_X = ds_X[idx]
-                    ds_sub_T = ds_T[idx]
+        if same_ds:
+            for ds, ds_id in ds_dict.items():
+                idx = np.argwhere(np.all(T_tmp[:, :, 0] == ds_id, axis=1)).squeeze()
+                ds_X = X_tmp[idx]
+                ds_T = T_tmp[idx]
 
-                    if same_act:
-                        for act, act_id in act_dict.items():
-                            idx = np.argwhere(np.all(ds_sub_T[:, :, 3] == act_id, axis=1)).squeeze()
-                            ds_sub_act_X = ds_sub_X[idx]
-                            ds_sub_act_T = ds_sub_T[idx]
-                            groups.append((ds_sub_act_X, ds_sub_act_T))
+                if same_sub:
+                    sub_arr = ds_T[:, :, 1]
+                    sub_ids = np.unique(sub_arr)
 
-                    else:
-                        groups.append((ds_sub_X, ds_sub_T))
+                    for sub_id in sub_ids:
+                        idx = np.argwhere(np.all(ds_T[:, :, 1] == sub_id, axis=1)).squeeze()
+                        ds_sub_X = ds_X[idx]
+                        ds_sub_T = ds_T[idx]
 
-            else:
-                groups.append((ds_X, ds_T))
+                        if same_act:
+                            for act, act_id in act_dict.items():
+                                idx = np.argwhere(np.all(ds_sub_T[:, :, 2] == act_id, axis=1)).squeeze()
+                                ds_sub_act_X = ds_sub_X[idx]
+                                ds_sub_act_T = ds_sub_T[idx]
+                                groups.append((ds_sub_act_X, ds_sub_act_T))
 
-    else:
-        groups.append((X, T))
+                        else:
+                            groups.append((ds_sub_X, ds_sub_T))
 
-    gp_batches = []
-    for group in groups:
-        X, T = group
-        anchor = (X[:, 0], T)
-        target = (X[:, 1], T)
+                else:
+                    groups.append((ds_X, ds_T))
 
-        batched_anchor = Batcher(anchor, method, batch_size, transformer, training, seed)
-        batched_target = Batcher(target, method, batch_size, transformer, training, seed)
-        batched_datasets = [batched_anchor, batched_target]
+        else:
+            groups.append((X_tmp, T_tmp))
 
-        gp_batches.append(Zipper(batched_datasets))
+        gp_batches = []
+        for group in groups:
+            gp_X, gp_T = group
+            anchor = (gp_X[:, 0], gp_T)
+            target = (gp_X[:, 1], gp_T)
 
-    batches = Concatenator(gp_batches)
+            batched_anchor = Batcher(anchor, method, batch_size, transformer, aug_anchor, seed)
+            batched_target = Batcher(target, method, batch_size, transformer, aug_target, seed)
+            batched_datasets = [batched_anchor, batched_target]
+
+            gp_batches.append(Zipper(batched_datasets))
+
+        batches[tp] = Concatenator(gp_batches)
 
     return batches
 
 
 def to_generator(C: Concatenator, input_type: tf.dtypes.DType,
-                 input_shape: np.ndarray, training: bool = False):
+                 input_shape: np.ndarray):
     def gen():
         for batch in C:
             anchor_batch, target_batch = batch

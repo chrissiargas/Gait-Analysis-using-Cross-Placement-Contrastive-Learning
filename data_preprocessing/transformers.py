@@ -1,7 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from config_parser import Parser
 from operator import itemgetter
-from transformations import add_noise, random_scale, random_rotate
+from transformations import add_noise, random_scale, time_mask, time_shift, random_rotate
 from filters import vectorized_lowpass_filter
 import tensorflow as tf
 
@@ -15,7 +16,7 @@ class Temporal:
         self.initial_features = {'acc_x': 0, 'acc_y': 1, 'acc_z': 2}
         self.initial_features.update({k: v+3 for v, k in enumerate(self.conf.prod_features)})
 
-        self.available_augs = ['jitter', 'scale', 'rotate']
+        self.available_augs = ['jitter', 'scale', 'mask', 'shift', 'rotate']
         self.features = self.conf.use_features
         self.augs = self.conf.augmentations
 
@@ -23,7 +24,6 @@ class Temporal:
             self.augs = []
         else:
             assert all(aug in self.available_augs for aug in self.augs)
-
 
         self.batch_size = self.conf.batch_size
         self.w_len = self.conf.length
@@ -36,21 +36,28 @@ class Temporal:
     def get_type(self):
         return self.data_type
 
-    def __call__(self, batch_of_ws: np.ndarray, training: bool = False):
+    def __call__(self, batch_of_ws: np.ndarray, augment: bool = False):
         batch_of_ws = np.array(batch_of_ws, dtype=np.float64)
         x = self.initial_features['acc_x']
         y = self.initial_features['acc_y']
         z = self.initial_features['acc_z']
         output = None
 
-        if training:
+        if augment:
             for aug in self.augs:
                 if aug == 'jitter':
                     batch_of_ws = add_noise(batch_of_ws)
                 elif aug == 'scale':
                     batch_of_ws = random_scale(batch_of_ws)
+                elif aug == 'mask':
+                    batch_of_ws = time_mask(batch_of_ws)
+                elif aug == 'shift':
+                    batch_of_ws = time_shift(batch_of_ws, final_length=self.w_len)
                 elif aug == 'rotate':
                     batch_of_ws[..., [x, y, z]] = random_rotate(batch_of_ws[..., [x, y, z]])
+
+        elif self.conf.shift_length > 0:
+            batch_of_ws = batch_of_ws[:, self.conf.shift_length // 2: -self.conf.shift_length // 2, :]
 
         for feature in self.conf.use_features:
             if feature in self.initial_features:

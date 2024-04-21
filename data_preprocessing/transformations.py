@@ -1,15 +1,18 @@
 "Vectorized transformation functions for mobile sensor time series"
 import itertools
+
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.interpolate
+from scipy.interpolate import CubicSpline
 
 
-def add_noise(X, sigma=0.05):
+def add_noise(X, sigma=1):
     noise = np.random.normal(loc=0, scale=sigma, size=X.shape)
     return X + noise
 
 
-def random_scale(X, sigma=0.1):
+def random_scale(X, sigma=0.2):
     scaling_factor = np.random.normal(loc=1.0, scale=sigma, size=(X.shape[0], 1, X.shape[2]))
     return X * scaling_factor
 
@@ -49,104 +52,84 @@ def axis_angle_to_rotation_matrix_3d_vectorized(axes, angles):
     return matrix_transposed
 
 
-def negate_transform_vectorized(X):
-    """
-    Inverting the signals
-    """
-    return X * -1
+def time_mask(X, max_num=2, max_length=10):
+    samples = X.shape[0]
+    length = X.shape[1]
+
+    for i in range(max_num):
+        t = np.random.randint(0, max_length, size=samples)
+        t0 = np.random.randint(0, length - t, size=samples)
+
+        index_array = np.zeros((samples, length)) + np.arange(length)
+
+        mask_start = (index_array >= t0[:, None])
+        mask_stop = (index_array < (t0 + t)[:, None])
+        mask = mask_start & mask_stop
+        mask = (1 - mask)[..., None]
+
+        X = X * mask
+
+    return X
 
 
-def time_flip_transform_vectorized(X):
-    """
-    Reversing the direction of time
-    """
-    return X[:, ::-1, :]
+def time_shift(X, final_length):
+    samples = X.shape[0]
+    initial_length = X.shape[1]
+    max_shift = initial_length - final_length
+
+    shifted_start = np.random.randint(0, max_shift+1, size=samples)
+
+    indices = np.arange(final_length) + shifted_start[:, np.newaxis]
+
+    X = X[np.arange(samples)[:, np.newaxis], indices, :]
+
+    return X
 
 
-def channel_shuffle_transform_vectorized(X):
-    """
-    Shuffling the different channels
-
-    Note: it might consume a lot of memory if the number of channels is high
-    """
-    channels = range(X.shape[2])
-    all_channel_permutations = np.array(list(itertools.permutations(channels))[1:])
-
-    random_permutation_indices = np.random.randint(len(all_channel_permutations), size=(X.shape[0]))
-    permuted_channels = all_channel_permutations[random_permutation_indices]
-    X_transformed = X[np.arange(X.shape[0])[:, np.newaxis, np.newaxis], np.arange(X.shape[1])[np.newaxis, :,
-                                                                        np.newaxis], permuted_channels[:, np.newaxis,
-                                                                                     :]]
-    return X_transformed
+def generate_random_curves(len, sigma=0.2, num_knots=4):
+    xx = (np.arange(0, len, (len - 1) / (num_knots + 1))).transpose()
+    yy = np.random.normal(loc=1.0, scale=sigma, size=(num_knots + 2))
+    time_stamps = np.arange(len)
+    cs_x = CubicSpline(xx[:], yy[:])
+    return np.array([cs_x(time_stamps)]).transpose()
 
 
-def time_segment_permutation_transform_improved(X, num_segments=4):
-    """
-    Randomly scrambling sections of the signal
-    """
-    segment_points_permuted = np.random.choice(X.shape[1], size=(X.shape[0], num_segments))
-    segment_points = np.sort(segment_points_permuted, axis=1)
-
-    X_transformed = np.empty(shape=X.shape)
-    for i, (sample, segments) in enumerate(zip(X, segment_points)):
-        # print(sample.shape)
-        splitted = np.array(np.split(sample, np.append(segments, X.shape[1])))
-        np.random.shuffle(splitted)
-        concat = np.concatenate(splitted, axis=0)
-        X_transformed[i] = concat
-    return X_transformed
+def distort_timesteps(len, sigma=0.2):
+    tt = generate_random_curves(len, sigma)
+    tt_cum = np.cumsum(tt, axis=0)
+    t_scale = [(len - 1) / tt_cum[-1]]
+    tt_cum[:] = tt_cum[:] * t_scale
+    return tt_cum
 
 
-def get_cubic_spline_interpolation(x_eval, x_data, y_data):
-    """
-    Get values for the cubic spline interpolation
-    """
-    cubic_spline = scipy.interpolate.CubicSpline(x_data, y_data)
-    return cubic_spline(x_eval)
+def DA_time_warp(len, sigma=0.2):
+    tt_new = distort_timesteps(len, sigma)
+    tt_new = np.squeeze(tt_new)
+    x_range = np.arange(len)
+    return tt_new, x_range
 
 
-def time_warp_transform_improved(X, sigma=0.2, num_knots=4):
-    """
-    Stretching and warping the time-series
-    """
-    time_stamps = np.arange(X.shape[1])
-    knot_xs = np.arange(0, num_knots + 2, dtype=float) * (X.shape[1] - 1) / (num_knots + 1)
-    spline_ys = np.random.normal(loc=1.0, scale=sigma, size=(X.shape[0] * X.shape[2], num_knots + 2))
+def time_warp(X):
+    X = X.astype(np.float32)
+    warped_X = np.zeros_like(X)
 
-    spline_values = np.array(
-        [get_cubic_spline_interpolation(time_stamps, knot_xs, spline_ys_individual) for spline_ys_individual in
-         spline_ys])
+    for i, pair in enumerate(X[100:]):
+        anchor, target = pair
 
-    cumulative_sum = np.cumsum(spline_values, axis=1)
-    distorted_time_stamps_all = cumulative_sum / cumulative_sum[:, -1][:, np.newaxis] * (X.shape[1] - 1)
+        # fig, axs = plt.subplots(2, 1, sharex=True, sharey=True)
+        # axs[0].plot(anchor[:, 0])
+        # axs[1].plot(target[:, 0])
 
-    X_transformed = np.empty(shape=X.shape)
-    for i, distorted_time_stamps in enumerate(distorted_time_stamps_all):
-        X_transformed[i // X.shape[2], :, i % X.shape[2]] = np.interp(time_stamps, distorted_time_stamps,
-                                                                      X[i // X.shape[2], :, i % X.shape[2]])
-    return X_transformed
+        tt_new, x_range = DA_time_warp(anchor.shape[0], 0.2)
+        warped_pair = np.array([np.array(
+            [np.interp(x_range, tt_new, sample[:, channel]) for channel in
+             range(anchor.shape[1])]).transpose() for sample in pair])
 
+        # warped_anchor, warped_target = warped_pair
+        # axs[0].plot(warped_anchor[:, 0], '--')
+        # axs[1].plot(warped_target[:, 0], '--')
+        # plt.show()
 
-def time_warp_transform_low_cost(X, sigma=0.2, num_knots=4, num_splines=150):
-    """
-    Stretching and warping the time-series (low cost)
-    """
-    time_stamps = np.arange(X.shape[1])
-    knot_xs = np.arange(0, num_knots + 2, dtype=float) * (X.shape[1] - 1) / (num_knots + 1)
-    spline_ys = np.random.normal(loc=1.0, scale=sigma, size=(num_splines, num_knots + 2))
+        warped_X[i, ...] = warped_pair
 
-    spline_values = np.array(
-        [get_cubic_spline_interpolation(time_stamps, knot_xs, spline_ys_individual) for spline_ys_individual in
-         spline_ys])
-
-    cumulative_sum = np.cumsum(spline_values, axis=1)
-    distorted_time_stamps_all = cumulative_sum / cumulative_sum[:, -1][:, np.newaxis] * (X.shape[1] - 1)
-
-    random_indices = np.random.randint(num_splines, size=(X.shape[0] * X.shape[2]))
-
-    X_transformed = np.empty(shape=X.shape)
-    for i, random_index in enumerate(random_indices):
-        X_transformed[i // X.shape[2], :, i % X.shape[2]] = np.interp(time_stamps,
-                                                                      distorted_time_stamps_all[random_index],
-                                                                      X[i // X.shape[2], :, i % X.shape[2]])
-    return X_transformed
+    return warped_X

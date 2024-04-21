@@ -1,9 +1,10 @@
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from filters import butter_lowpass_filter
 
 
-def get_norm_xyz(x: pd.DataFrame, position: str) -> pd.DataFrame:
+def add_norm_xyz(x: pd.DataFrame, position: str) -> pd.DataFrame:
     x = x.copy()
 
     acc_x = position + '_acc_x'
@@ -12,10 +13,17 @@ def get_norm_xyz(x: pd.DataFrame, position: str) -> pd.DataFrame:
 
     x[position + '_norm_xyz'] = np.sqrt(x[acc_x] ** 2 + x[acc_y] ** 2 + x[acc_z] ** 2)
 
+    # print(position)
+    # plt.plot(x[acc_x].values[2500:2600])
+    # plt.plot(x[acc_y].values[2500:2600])
+    # plt.plot(x[acc_z].values[2500:2600])
+    # plt.plot(x[position + '_norm_xyz'].values[2500:2600])
+    # plt.show()
+
     return x
 
 
-def get_norm_xy(x: pd.DataFrame, position: str) -> pd.DataFrame:
+def add_norm_xy(x: pd.DataFrame, position: str) -> pd.DataFrame:
     x = x.copy()
 
     acc_x = position + '_acc_x'
@@ -26,7 +34,7 @@ def get_norm_xy(x: pd.DataFrame, position: str) -> pd.DataFrame:
     return x
 
 
-def get_norm_yz(x: pd.DataFrame, position: str) -> pd.DataFrame:
+def add_norm_yz(x: pd.DataFrame, position: str) -> pd.DataFrame:
     x = x.copy()
 
     acc_y = position + '_acc_y'
@@ -37,7 +45,7 @@ def get_norm_yz(x: pd.DataFrame, position: str) -> pd.DataFrame:
     return x
 
 
-def get_norm_xz(x: pd.DataFrame, position: str) -> pd.DataFrame:
+def add_norm_xz(x: pd.DataFrame, position: str) -> pd.DataFrame:
     x = x.copy()
 
     acc_x = position + '_acc_x'
@@ -48,7 +56,7 @@ def get_norm_xz(x: pd.DataFrame, position: str) -> pd.DataFrame:
     return x
 
 
-def get_jerk(x: pd.DataFrame, position: str, fillna: bool = False) -> pd.DataFrame:
+def add_jerk(x: pd.DataFrame, position: str, fillna: bool = False) -> pd.DataFrame:
     x = x.copy()
 
     acc_x = position + '_acc_x'
@@ -70,10 +78,17 @@ def get_jerk(x: pd.DataFrame, position: str, fillna: bool = False) -> pd.DataFra
         mask = groups.cumcount() == 0
         x[position + '_jerk'] = x[position + '_jerk'].where(~mask, 0)
 
+    # print(position)
+    # plt.plot(x[acc_x].values[2500:2600])
+    # plt.plot(x[acc_y].values[2500:2600])
+    # plt.plot(x[acc_z].values[2500:2600])
+    # plt.plot(x[position + '_jerk'].values[2500:2600])
+    # plt.show()
+
     return x
 
 
-def get_grav(x: pd.DataFrame, position: str, fs: int) -> pd.DataFrame:
+def add_grav(x: pd.DataFrame, position: str, fs: int) -> pd.DataFrame:
     x = x.copy()
     x = x.interpolate()
 
@@ -96,5 +111,29 @@ def get_grav(x: pd.DataFrame, position: str, fs: int) -> pd.DataFrame:
     x[position + '_grav_x'] = low_x
     x[position + '_grav_y'] = low_y
     x[position + '_grav_z'] = low_z
+
+    return x
+
+def add_grav(x: pd.DataFrame, position: str, fs: int, direction: str) -> pd.DataFrame:
+    x = x.copy()
+    x = x.interpolate()
+
+    cutoff = 1.
+
+    if direction == 'x':
+        acc = position + '_acc_x'
+    elif direction == 'y':
+        acc = position + '_acc_y'
+    elif direction == 'z':
+        acc = position + '_acc_z'
+    else:
+        return None
+
+    groups = x.groupby(['dataset', 'subject', 'activity'])
+
+    low = groups.apply(lambda g: butter_lowpass_filter(g[acc].values, cutoff, fs / 2))
+    low = np.concatenate(low.values)
+
+    x[position + '_grav_' + direction] = low
 
     return x

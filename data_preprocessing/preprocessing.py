@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Optional, List, Tuple
-from features import get_norm_xy, get_norm_xz, get_norm_xyz, get_norm_yz, get_jerk, get_grav
+from features import add_norm_xy, add_norm_xz, add_norm_xyz, add_norm_yz, add_jerk, add_grav
 from filters import median_smoothing
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from data_info import Info
@@ -48,7 +48,7 @@ def drop_positions(x: pd.DataFrame, positions) -> pd.DataFrame:
     return x
 
 
-def choose(x: pd.DataFrame, ds_names: List[str], positions: List[str]) -> pd.DataFrame:
+def choose(x: pd.DataFrame, ds_names: List[str], positions: List[str], activities: List[str]) -> pd.DataFrame:
     x = x.copy()
 
     in_pos = []
@@ -92,6 +92,7 @@ def choose(x: pd.DataFrame, ds_names: List[str], positions: List[str]) -> pd.Dat
     in_cols = [acc_col for acc_col in acc_cols if any(pos for pos in in_pos if pos in acc_col)]
     out_cols = list(set(acc_cols) - set(in_cols))
     x = x.drop(out_cols, axis=1)
+    x = x[x.activity.str.contains('|'.join(activities))]
 
     return x
 
@@ -119,25 +120,34 @@ def virtual(x: pd.DataFrame, features: List[str], fs: int) -> pd.DataFrame:
     positions = [acc_name[:-6] for acc_name in all_acc]
     positions = list(set(positions))
 
+    if features is None:
+        return x
+
     for position in positions:
 
         if 'norm_xyz' in features:
-            x = get_norm_xyz(x, position)
+            x = add_norm_xyz(x, position)
 
         if 'norm_xy' in features:
-            x = get_norm_xy(x, position)
+            x = add_norm_xy(x, position)
 
         if 'norm_yz' in features:
-            x = get_norm_yz(x, position)
+            x = add_norm_yz(x, position)
 
         if 'norm_xz' in features:
-            x = get_norm_xz(x, position)
+            x = add_norm_xz(x, position)
 
         if 'jerk' in features:
-            x = get_jerk(x, position, fillna=True)
+            x = add_jerk(x, position, fillna=True)
 
-        if 'grav' in features:
-            x = get_grav(x, position, fs)
+        if 'grav_x' in features:
+            x = add_grav(x, position, fs, 'x')
+
+        if 'grav_y' in features:
+            x = add_grav(x, position, fs, 'y')
+
+        if 'grav_z' in features:
+            x = add_grav(x, position, fs, 'z')
 
     return x
 
@@ -213,13 +223,13 @@ def segment(X: pd.DataFrame, length: int, step: int) -> np.ndarray:
     return X
 
 
-def stack(x: pd.DataFrame, length: int, step: int, anchors: List[str], targets: List[str]) -> Tuple[np.ndarray, np.ndarray]:
+def stack(x: pd.DataFrame, length: int, step: int, anchors: List[str], targets: List[str]) -> Tuple[dict, dict]:
     x = x.copy()
 
     t_cols = ['dataset_id', 'subject_id', 'activity_id', 'timestamp']
 
-    X = None
-    T = None
+    X = {}
+    T = {}
 
     for it, (anchor, target) in enumerate(zip(anchors, targets)):
         anchor_cols = x.columns[x.columns.str.contains(anchor)]
@@ -237,25 +247,19 @@ def stack(x: pd.DataFrame, length: int, step: int, anchors: List[str], targets: 
 
         t_ws = groups.apply(lambda gp: segment(gp[t_cols], length, step))
         t_ws = np.concatenate(t_ws.values)
-        ids = (np.zeros(t_ws.shape[:2]) + it)[..., np.newaxis]
-        t_ws = np.concatenate((ids, t_ws), axis=-1)
 
         anchor_ws = anchor_ws[:, np.newaxis, ...]
         target_ws = target_ws[:, np.newaxis, ...]
         x_ws = np.concatenate((anchor_ws, target_ws), axis=1)
 
-        if X is None:
-            X = x_ws
-            T = t_ws
-        else:
-            X = np.concatenate((X, x_ws))
-            T = np.concatenate((T, t_ws))
+        X[target] = x_ws
+        T[target] = t_ws
 
     return X, T
 
 
 def finalize(x: pd.DataFrame, length: int, step: int, pairs: List[List[str]], oversample: bool)\
-        -> Tuple[Tuple[np.ndarray, np.ndarray],List]:
+        -> Tuple[Tuple[dict, dict],List]:
     x = x.copy()
     nan_cols = x.columns[x.columns.str.contains('NaN')].tolist()
     moved_cols = [col for col in x.columns if col not in nan_cols] + nan_cols
@@ -264,8 +268,8 @@ def finalize(x: pd.DataFrame, length: int, step: int, pairs: List[List[str]], ov
     ds_names = x['dataset'].unique()
     info = Info()
 
-    X = None
-    T = None
+    X = {}
+    T = {}
 
     x, dicts = to_categorical(x)
 
@@ -283,37 +287,40 @@ def finalize(x: pd.DataFrame, length: int, step: int, pairs: List[List[str]], ov
 
         ds_X, ds_T = stack(ds, length, step, anchors, targets)
 
-        if X is None:
-            X = ds_X
-            T = ds_T
-        else:
-            X = np.concatenate((X, ds_X))
-            T = np.concatenate((T, ds_T))
+        for target in targets:
+            if target not in X:
+                X[target] = ds_X[target]
+                T[target] = ds_T[target]
+            else:
+                X[target] = np.concatenate((X[target], ds_X[target]))
+                T[target] = np.concatenate((T[target], ds_T[target]))
 
     return (X, T), dicts
 
 
-def clean(S: Tuple[np.ndarray, np.ndarray], how: str, tol: float) -> Tuple[np.ndarray, np.ndarray]:
+def clean(S: Tuple[dict, dict], how: str, tol: float) -> Tuple[dict, dict]:
     X, T = S
 
-    X = X.copy()
-    T = T.copy()
+    for target in X.keys():
 
-    length = X.shape[2]
-    thres = int(tol * length)
+        X_tmp = X[target].copy()
+        T_tmp = T[target].copy()
 
-    anchor_NaNs = X[:, 0, :, -1]
-    target_NaNs = X[:, 1, :, -1]
+        length = X_tmp.shape[2]
+        thres = int(tol * length)
 
-    anchor_count = np.sum(anchor_NaNs, axis=1)
-    target_count = np.sum(target_NaNs, axis=1)
+        anchor_NaNs = X_tmp[:, 0, :, -1]
+        target_NaNs = X_tmp[:, 1, :, -1]
 
-    if how == 'in total':
-        anchor_drop = np.argwhere(anchor_count > thres).squeeze()
-        target_drop = np.argwhere(target_count > thres).squeeze()
-        drop = np.union1d(anchor_drop, target_drop)
-        X = np.delete(X, drop, axis=0)
-        T = np.delete(T, drop, axis=0)
-        X = X[..., :-1]
+        anchor_count = np.sum(anchor_NaNs, axis=1)
+        target_count = np.sum(target_NaNs, axis=1)
+
+        if how == 'in total':
+            anchor_drop = np.argwhere(anchor_count > thres).squeeze()
+            target_drop = np.argwhere(target_count > thres).squeeze()
+            drop = np.union1d(anchor_drop, target_drop)
+            X_tmp = np.delete(X_tmp, drop, axis=0)
+            T[target] = np.delete(T_tmp, drop, axis=0)
+            X[target] = X_tmp[..., :-1]
 
     return X, T

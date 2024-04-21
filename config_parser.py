@@ -6,6 +6,16 @@ from os.path import dirname, abspath
 
 class Parser:
     def __init__(self):
+        self.encoder = None
+        self.common_augmentations = None
+        self.shift_length = None
+        self.shift_pad = None
+        self.cnn_blocks = None
+        self.in_activities = None
+        self.neg_pos = None
+        self.neg_act = None
+        self.neg_sub = None
+        self.neg_ds = None
         self.attach_head = None
         self.clr_temp = None
         self.lr_decay = None
@@ -98,6 +108,7 @@ class Parser:
         self.load_data = args.main_args['load_data']
         self.in_datasets = args.main_args['datasets']
         self.in_positions = args.main_args['positions']
+        self.in_activities = args.main_args['activities']
         self.cleaner = args.main_args['cleaner']
         self.prod_features = args.main_args['produce_features']
         self.filter = args.main_args['filter']
@@ -108,7 +119,7 @@ class Parser:
         self.duration = args.main_args['duration']
         self.length = int(self.duration * self.fs)
         self.stride = args.main_args['stride']
-        self.step = self.stride * self.fs
+        self.step = int(self.stride * self.fs)
         self.selection_method = args.main_args['selection_method']
         self.tolerance = args.main_args['tolerance']
         self.use_features = args.main_args['use_features']
@@ -118,11 +129,21 @@ class Parser:
         self.ssl_model = args.main_args['ssl_model']
         self.lr = args.main_args['learning_rate']
         self.load_model = args.main_args['load_model']
-        self.clr_temp = args.main_args['clr_temp']
+        self.clr_temp = args.main_args['clr_temperature']
         self.optimizer = args.main_args['optimizer']
         self.epochs = args.main_args['epochs']
         self.decay_steps = args.main_args['decay_steps']
         self.lr_decay = args.main_args['lr_decay']
         self.attach_head = args.main_args['attach_head']
+        self.neg_ds = args.main_args['negative_dataset']
+        self.neg_sub = args.main_args['negative_subject']
+        self.neg_act = args.main_args['negative_activity']
+        self.neg_pos = args.main_args['negative_position']
+        self.cnn_blocks = args.main_args['cnn_blocks']
+        self.shift_pad = args.main_args['shift_pad']
+        self.shift_length = int(self.shift_pad * self.fs)
+        self.common_augmentations = [] if args.main_args['common_augmentations'] is None else args.main_args['common_augmentations']
+        self.encoder = args.main_args['encoder']
+        
         
         return

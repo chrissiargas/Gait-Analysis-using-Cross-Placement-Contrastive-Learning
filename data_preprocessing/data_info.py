@@ -97,8 +97,8 @@ class Info:
         self.rwhar_fs = 50
 
         self.rwhar_activities = {
-            "climbingdown": 'climbing',
-            "climbingup": 'climbing',
+            "climbingdown": 'climbing down',
+            "climbingup": 'climbing up',
             "jumping": 'jumping',
             "lying": 'lying',
             "running": 'running',
@@ -199,13 +199,14 @@ class Info:
         }
 
         self.marea_act_pairs = {
-            "treadmill_walk": 'walking',
-            "treadmill_run": 'running',
-            "treadmill_slope_walk": 'walking',
-            "indoor_walk": 'walking',
-            "indoor_run": 'running',
-            "outdoor_walk": 'walking',
-            "outdoor_run": 'running'
+            "undefined": 'no pair',
+            "treadmill_walk": 'treadmill_walking',
+            "treadmill_run": 'treadmill_running',
+            "treadmill_slope_walk": 'treadmill_slope_walking',
+            "indoor_walk": 'indoor_walking',
+            "indoor_run": 'indoor_running',
+            "outdoor_walk": 'outdoor_walking',
+            "outdoor_run": 'outdoor_running'
         }
 
         self.marea_pos_pairs = {
